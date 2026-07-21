@@ -1,0 +1,78 @@
+name: deploy-infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile.h2'
+      - 'k8s/infraestructure/h2.yaml'
+      - 'k8s/infraestructure/mongodb.yaml'
+      - '.github/workflows/deploy-infrastructure.yml'
+    workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      ############################################################
+      # BUILD H2
+      ############################################################
+
+      - name: Build H2 image
+        run: |
+          podman build -f Dockerfile.h2 -t h2-db:2.4.240 .
+
+      - name: Import H2 image
+        run: |
+          podman save h2-db:2.4.240 -o h2-db.tar
+          sudo k3s ctr images import h2-db.tar
+
+      ############################################################
+      # IMPORT MONGODB
+      ############################################################
+
+      - name: Pull MongoDB image
+        run: |
+          podman pull docker.io/mongo:8.0
+
+      - name: Import MongoDB image
+        run: |
+          podman save docker.io/mongo:8.0 -o mongodb.tar
+          sudo k3s ctr images import mongodb.tar
+
+      ############################################################
+      # DEPLOY DATABASES
+      ############################################################
+
+      - name: Deploy H2
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl apply -f k8s/infraestructure/h2.yaml
+
+      - name: Deploy MongoDB
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl apply -f k8s/infraestructure/mongodb.yaml
+
+      ############################################################
+      # WAIT
+      ############################################################
+
+      - name: Wait for H2
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl rollout status deployment/h2-db \
+            -n cqrs-lab \
+            --timeout=120s
+
+      - name: Wait for MongoDB
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl rollout status deployment/mongodb \
+            -n cqrs-lab \
+            --timeout=120s

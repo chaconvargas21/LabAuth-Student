@@ -1,0 +1,103 @@
+name: deploy-student
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - 'Dockerfile'
+      - 'k8s/deployment.yaml'
+      - 'k8s/service.yaml'
+      - '.github/workflows/deploy-student.yml'
+    workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Java
+        run: java --version
+
+      - name: Verify Maven
+        run: mvn --version
+
+      - name: Ensure infrastructure
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl apply -f k8s/infraestructure
+
+      - name: Wait for H2
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          kubectl rollout status deployment/h2-db \
+          -n cqrs-lab \
+          --timeout=120s
+
+      - name: Wait for MongoDB
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+      
+          kubectl rollout status deployment/mongodb \
+          -n cqrs-lab \
+          --timeout=120s
+
+      ############################################################
+      # BUILD
+      ############################################################
+
+      - name: Build Quarkus application
+        run: mvn clean package
+
+      ############################################################
+      # IMAGE
+      ############################################################
+
+      - name: Build image
+        run: |
+          podman build -t student-api:1.0 .
+
+      - name: Import image
+        run: |
+          podman save student-api:1.0 -o student-api.tar
+          sudo k3s ctr images import student-api.tar
+
+      ############################################################
+      # DEPLOY
+      ############################################################
+
+      - name: Deploy Student API
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      ############################################################
+      # RESTART
+      ############################################################
+
+      - name: Restart Deployment
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          kubectl rollout restart deployment/student-api \
+            -n cqrs-lab
+
+      ############################################################
+      # WAIT
+      ############################################################
+
+      - name: Wait Deployment
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          kubectl rollout status deployment/student-api \
+            -n cqrs-lab \
+            --timeout=120s

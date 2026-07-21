@@ -1,0 +1,11 @@
+FROM docker.io/eclipse-temurin:21-jdk
+
+WORKDIR /opt/h2
+
+ADD https://repo1.maven.org/maven2/com/h2database/h2/2.4.240/h2-2.4.240.jar h2.jar
+
+EXPOSE 9092 8082
+
+ENTRYPOINT ["java","-cp","/opt/h2/h2.jar","org.h2.tools.Server"]
+
+CMD ["-tcp","-tcpAllowOthers","-tcpPort","9092","-ifNotExists","-web","-webAllowOthers","-webPort","8082"]
